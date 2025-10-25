@@ -1,6 +1,8 @@
-from telebot import TeleBot, types
-from logiт import DB_Manager
-from config import DATABASE, TOKEN  
+from telebot import TeleBot
+import cv2
+import os
+from logic import DB_Manager, create_collage
+from config import DATABASE, TOKEN
 
 bot = TeleBot(TOKEN)
 db = DB_Manager(DATABASE)
@@ -9,39 +11,26 @@ db = DB_Manager(DATABASE)
 def start_command(message):
     bot.send_message(message.chat.id, "Привет! Я твой бот 🤖")
 
+@bot.message_handler(commands=['my_score'])
+def get_my_score(message):
+    user_id = message.chat.id
+    info = db.get_winners_img(user_id)
+    prizes = [x[0] for x in info]
 
-@bot.message_handler(commands=['rating'])
-def handle_rating(message):
-    res = db.get_rating()
-    if not res:
-        bot.send_message(message.chat.id, "Пока нет данных о победителях 🕓")
+    all_images = os.listdir('img')
+    image_paths = [f'img/{x}' if x in prizes else f'hidden_img/{x}' for x in all_images]
+
+    collage = create_collage(image_paths)
+    if collage is None:
+        bot.send_message(message.chat.id, "У тебя пока нет призов 😔")
         return
 
-    table_rows = [f'| @{x[0]:<11} | {x[1]:<11}|\n{"_"*26}' for x in res]
-    result = '\n'.join(table_rows)
-    header = f'|USER_NAME    |COUNT_PRIZE|\n{"_"*26}\n'
-    bot.send_message(message.chat.id, header + result)
+    path = f'collages/collage_{user_id}.jpg'
+    os.makedirs('collages', exist_ok=True)
+    cv2.imwrite(path, collage)
 
-
-@bot.callback_query_handler(func=lambda call: True)
-def callback_query(call):
-    prize_id = call.data
-    user_id = call.message.chat.id
-
-    # Проверяем, сколько победителей уже есть
-    winners_count = db.get_winners_count(prize_id)
-
-    if winners_count < 3:
-        # Добавляем победителя (пример, зависит от реализации в твоей БД)
-        res = db.add_winner(user_id, prize_id)
-        if res:
-            img = db.get_prize_image(prize_id)
-            with open(f'img/{img}', 'rb') as photo:
-                bot.send_photo(user_id, photo, caption="🎉 Поздравляем! Ты получил картинку!")
-        else:
-            bot.send_message(user_id, "Ты уже получил этот приз!")
-    else:
-        bot.send_message(user_id, "😔 К сожалению, призы уже разобрали. Попробуй в следующий раз!")
+    with open(path, 'rb') as photo:
+        bot.send_photo(message.chat.id, photo, caption="Твой коллаж достижений 🏆")
 
 if __name__ == "__main__":
     print("Бот запущен...")
